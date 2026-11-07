@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>鑫鑫哥哥携最醉仙女及小跟班同行 · 中国旅游美食打卡地图</title>
 <link rel="icon" href="data:,">
 <style>
@@ -30,6 +30,7 @@ h1{font-family:"Kaiti SC","KaiTi","STKaiti",serif;font-size:clamp(18px,5.2vw,30p
 .hbtn{border:none;background:rgba(255,255,255,.16);color:#fff;font-size:15px;width:34px;height:30px;
   border-radius:9px;cursor:pointer}
 .hbtn:active{transform:scale(.92)}
+html,body{max-width:100%;overflow-x:hidden}
 main{flex:1;display:flex;flex-direction:column;min-height:0;order:1}
 /* 二级地图打开时隐藏首页标题栏与右下信息流，避免与省份景点列表重叠 */
 body.pp-open header{display:none}
@@ -46,6 +47,7 @@ svg#map{display:block;width:100%;height:auto}
   font-weight:600;backdrop-filter:blur(4px);box-shadow:0 2px 8px rgba(0,0,0,.25);cursor:pointer}
 #backBtn{background:linear-gradient(135deg,#e63946,#f4a261);color:#fff;border:none;padding:8px 15px;
   border-radius:20px;font-size:13px;font-weight:700;box-shadow:0 3px 10px rgba(230,57,70,.35);cursor:pointer}
+#feedPane.feed-hide{display:none}
 #feedPane{position:fixed;right:12px;bottom:calc(58px + env(safe-area-inset-bottom,0px));
   width:min(92vw,420px);max-height:58vh;z-index:150;
   display:flex;flex-direction:column;background:rgba(255,253,246,.98);
@@ -1101,8 +1103,11 @@ function doCheckin(spot){
   $("provPanel").classList.remove("open"); ppOpen = false;
   document.body.classList.remove("pp-open");
   backToWhole();
-  // 同步下方打卡对话框
+  // 同步下方打卡对话框 + 打卡20秒后自动关闭动态框
   addFeedCard(spot, true, m);
+  showFeed();
+  if(__feedTimer) clearTimeout(__feedTimer);
+  __feedTimer = setTimeout(hideFeed, 20000);
   // 版图外气泡框 + 引导线（永不消失）
   setTimeout(function(){
     var b = addBubble(spot, true, m);
@@ -1112,6 +1117,9 @@ function doCheckin(spot){
 }
 
 /* ===== 打卡动态（对话框，常驻） ===== */
+var __feedTimer = null;
+function showFeed(){ var f=$("feedPane"); if(f) f.classList.remove("feed-hide"); }
+function hideFeed(){ var f=$("feedPane"); if(f) f.classList.add("feed-hide"); }
 function fmtTime(ts){
   var d = new Date(ts); function z(n){ return n<10?"0"+n:n; }
   return d.getFullYear()+"-"+z(d.getMonth()+1)+"-"+z(d.getDate())+" "+z(d.getHours())+":"+z(d.getMinutes());
@@ -1403,6 +1411,7 @@ function setMode(m){
 /* ===== 底部导航 & 页面切换 ===== */
 var TAB = "travel";
 function switchTab(tab){
+  showFeed();
   TAB = tab;
   document.querySelectorAll("#tabBar .tab").forEach(function(b){ b.classList.toggle("active", b.dataset.tab===tab); });
   var isPage = (tab==="details" || tab==="reco" || tab==="board");
