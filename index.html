@@ -483,6 +483,7 @@ function stOf(spot){ return modeOf(spot)==="travel" ? stateT : stateF; }
 function saveModeState(m){
   var st = m==="travel" ? stateT : stateF;
   try{ localStorage.setItem(m==="travel" ? STORE_KEY : FOOD_KEY, JSON.stringify(st)); }catch(e){}
+  if(window.__amuPush) window.__amuPush();
 }
 function findAnySpot(name){
   var a = allSpots(), i;
@@ -512,7 +513,7 @@ try{ stateF = JSON.parse(localStorage.getItem(FOOD_KEY) || "{}"); }catch(e){ sta
 var voiceOn = localStorage.getItem(VOICE_KEY) !== "0";
 var boards = [];
 try{ boards = JSON.parse(localStorage.getItem(BOARD_KEY) || "[]"); }catch(e){ boards = []; }
-function saveBoards(){ try{ localStorage.setItem(BOARD_KEY, JSON.stringify(boards)); }catch(e){} }
+function saveBoards(){ try{ localStorage.setItem(BOARD_KEY, JSON.stringify(boards)); }catch(e){} if(window.__amuPush) window.__amuPush(); }
 function boardId(){ return Date.now()+"_"+Math.floor(Math.random()*1e6); }
 function addBoard(spot, text){
   boards.unshift({id:boardId(), n:spot.n, p:spot.p, mode:MODE, time:Date.now(), text:text, emoji:spot.e});
@@ -1698,6 +1699,156 @@ homeBackBtn.addEventListener("click", function(ev){
 homePage.style.display = "flex";
 document.body.classList.add("on-home");
 })();
+</script>
+
+<script>
+
+window.__amuSnap=function(){return {travel:stateT, food:stateF, voice:(voiceOn?1:0), boards:boards};};
+window.__amuApply=function(d){
+  if(!d)return false;
+  var changed=false;
+  try{
+    if(d.travel && JSON.stringify(d.travel)!==JSON.stringify(stateT)){ stateT=d.travel; localStorage.setItem(STORE_KEY,JSON.stringify(stateT)); changed=true; }
+    if(d.food && JSON.stringify(d.food)!==JSON.stringify(stateF)){ stateF=d.food; localStorage.setItem(FOOD_KEY,JSON.stringify(stateF)); changed=true; }
+    if(d.voice!==undefined && (d.voice?1:0)!==(voiceOn?1:0)){ voiceOn=!!d.voice; localStorage.setItem(VOICE_KEY,voiceOn?"1":"0"); changed=true; }
+    if(d.boards && JSON.stringify(d.boards)!==JSON.stringify(boards)){ boards=d.boards; localStorage.setItem(BOARD_KEY,JSON.stringify(boards)); changed=true; }
+  }catch(e){}
+  return changed;
+};
+/* 阿木统一同步客户端 v1 · 注入用 */
+(function(){
+  var APP="travel";
+  var CFG='amu_sync_'+APP, LAST='amu_lastts_'+APP;
+  var cfg={}; try{cfg=JSON.parse(localStorage.getItem(CFG)||'{}')||{};}catch(e){}
+  var S={base:(cfg.base||'').replace(/\/+$/,''),key:cfg.key||'',on:false,ts:0,busy:false,timer:null,pushT:null};
+  function api(p){return S.base+'/api/app/'+APP+'/'+p;}
+  function hdr(extra){var h=extra||{};if(S.key)h['X-Sync-Key']=S.key;return h;}
+  function badge(state,tip){
+    var b=document.getElementById('amuSyncBtn'); if(!b) return;
+    var map={ok:['#0e9f6e','☁️','已连接同步'],off:['#94a3b8','☁️','未连接同步（点击设置）'],key:['#f59e0b','☁️','口令不对'],busy:['#3b82f6','☁️','连接中…']};
+    var m=map[state]||map.off;
+    b.style.background=m[0]; b.title=tip||m[2];
+  }
+  function toast(t){
+    var d=document.createElement('div');
+    d.textContent=t;
+    d.style.cssText='position:fixed;left:50%;bottom:86px;transform:translateX(-50%);background:rgba(17,24,39,.92);color:#fff;font-size:12.5px;padding:9px 15px;border-radius:9px;z-index:100001;max-width:80vw;text-align:center;line-height:1.5';
+    document.body.appendChild(d);
+    setTimeout(function(){d.style.transition='opacity .3s';d.style.opacity='0';setTimeout(function(){d.remove();},320);},2200);
+  }
+  function push(){
+    if(!S.on||S.busy)return;
+    S.busy=true;
+    fetch(api('data'),{method:'POST',headers:hdr({'Content-Type':'application/json'}),body:JSON.stringify({data:window.__amuSnap()})})
+      .then(function(r){return r.json();}).then(function(j){if(j&&j.ts){S.ts=j.ts;try{localStorage.setItem(LAST,String(j.ts));}catch(e){}}}).catch(function(){}).then(function(){S.busy=false;});
+  }
+  window.__amuPush=push;
+  function idle(){
+    var a=document.activeElement;
+    if(a&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))return false;
+    if(document.getElementById('amuSyncPanel'))return false;
+    return true;
+  }
+  function applyRemote(d,ts){
+    if(!d)return;
+    var changed=window.__amuApply(d);
+    try{localStorage.setItem(LAST,String(ts||0));}catch(e){}
+    if(changed) location.reload();
+  }
+  function pull(){
+    if(!S.on)return;
+    fetch(api('data'),{headers:hdr(),cache:'no-store'}).then(function(r){return r.ok?r.json():null;}).then(function(j){
+      if(!j||!j.ts||j.ts<=S.ts)return;
+      if(!idle())return;
+      S.ts=j.ts; applyRemote(j.data,j.ts);
+    }).catch(function(){});
+  }
+  function connect(silent){
+    badge('busy');
+    var t=setTimeout(function(){ if(!silent)toast('连接超时：确认服务已启动、地址是最新的'); },12000);
+    fetch(api('ping'),{cache:'no-store'}).then(function(r){return r.ok?r.json():null;}).then(function(j){
+      if(!j||!j.ok)throw new Error('ping');
+      return fetch(api('data'),{headers:hdr(),cache:'no-store'});
+    }).then(function(r){
+      if(r.status===401){clearTimeout(t);badge('key');if(!silent)toast('地址通了，但同步口令不对');return null;}
+      if(!r.ok)throw new Error('http '+r.status);
+      S.on=true; badge('ok');
+      return r.json();
+    }).then(function(j){
+      if(!j)return;
+      clearTimeout(t);
+      var stored=0; try{stored=Number(localStorage.getItem(LAST)||0)||0;}catch(e){}
+      S.ts=Math.max(Number(j.ts||0),stored);
+      if(j.ts&&j.ts>stored&&j.data){ applyRemote(j.data,j.ts); return; }
+      if(!S.timer) S.timer=setInterval(pull,4000);
+    }).catch(function(){ clearTimeout(t); S.on=false; badge('off'); if(!silent)toast('连不上：确认 start.bat 与 tunnel.bat 都在运行'); });
+  }
+  window.__amuConnect=connect;
+
+  function openPanel(){
+    if(document.getElementById('amuSyncPanel'))return;
+    var p=document.createElement('div');
+    p.id='amuSyncPanel';
+    p.style.cssText='position:fixed;inset:0;z-index:100000;background:rgba(10,20,30,.46);display:flex;align-items:center;justify-content:center;padding:16px;overflow:auto';
+    p.innerHTML=''
+      +'<div style="width:min(94vw,420px);background:#fff;border-radius:16px;box-shadow:0 16px 52px rgba(0,0,0,.3);padding:18px;margin:auto;font-family:inherit">'
+      +'<div style="font-size:15.5px;font-weight:750;color:#16202e;margin-bottom:3px">同步设置 · 旅行美食地图</div>'
+      +'<div style="font-size:11.5px;color:#8a98a8;margin-bottom:13px">所有网页共用同一个隧道地址和口令</div>'
+      +'<div style="font-size:11.5px;color:#8a98a8;margin-bottom:4px">服务器地址</div>'
+      +'<input id="amuBase" value="'+(S.base||'').replace(/"/g,'&quot;')+'" placeholder="https://xxxx.trycloudflare.com" style="width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid #d7e0ea;border-radius:9px;font-size:13px;font-family:inherit;outline:none">'
+      +'<div style="font-size:11px;color:#a3b1c0;margin:5px 0 10px;line-height:1.6">局域网内可留空；用 GitHub Pages 打开时必须填隧道地址</div>'
+      +'<div style="font-size:11.5px;color:#8a98a8;margin-bottom:4px">同步口令</div>'
+      +'<input id="amuKey" value="'+(S.key||'').replace(/"/g,'&quot;')+'" placeholder="sanjin2026" style="width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid #d7e0ea;border-radius:9px;font-size:13px;font-family:inherit;outline:none">'
+      +'<div id="amuTip" style="font-size:12px;color:#64748b;margin-top:10px;min-height:17px">'+(S.on?'✅ 已连接同步':'未连接')+'</div>'
+      +'<div style="display:flex;gap:8px;margin-top:12px">'
+      +'<button id="amuTest" style="flex:1;padding:10px;border-radius:9px;border:1px solid #d7e0ea;background:#f8fafc;color:#475569;font-size:12.8px;font-weight:650;font-family:inherit;cursor:pointer">测试连接</button>'
+      +'<button id="amuSave" style="flex:1;padding:10px;border-radius:9px;border:none;background:linear-gradient(135deg,#34d399,#0ea472);color:#fff;font-size:12.8px;font-weight:650;font-family:inherit;cursor:pointer">保存并连接</button>'
+      +'</div>'
+      +'<button id="amuClose" style="width:100%;margin-top:8px;padding:9px;border-radius:9px;border:1px solid #eef3f8;background:#fff;color:#8a98a8;font-size:12.5px;font-family:inherit;cursor:pointer">关闭</button>'
+      +'</div>';
+    document.body.appendChild(p);
+    function read(){return {base:document.getElementById('amuBase').value.trim().replace(/\/+$/,''),key:document.getElementById('amuKey').value.trim()};}
+    var tip=document.getElementById('amuTip');
+    document.getElementById('amuClose').onclick=function(){p.remove();};
+    p.onclick=function(e){if(e.target===p)p.remove();};
+    document.getElementById('amuTest').onclick=function(){
+      var v=read(); var b=v.base;
+      tip.textContent='测试中…';
+      var t=setTimeout(function(){tip.textContent='❌ 超时：隧道可能没开或地址已失效';},12000);
+      fetch((b||'')+'/api/app/'+APP+'/ping',{cache:'no-store'}).then(function(r){
+        clearTimeout(t);
+        if(!r.ok){tip.textContent='⚠️ 服务可达但返回 HTTP '+r.status;return;}
+        return fetch((b||'')+'/api/app/'+APP+'/data',{headers:v.key?{'X-Sync-Key':v.key}:{},cache:'no-store'}).then(function(r2){
+          tip.textContent=r2.ok?'✅ 连接成功，点「保存并连接」生效':(r2.status===401?'❌ 地址通，但口令不对':'⚠️ 数据接口返回 HTTP '+r2.status);
+        });
+      }).catch(function(){clearTimeout(t);tip.textContent=b?'❌ 连不上：确认服务与隧道都在运行、地址是最新的':'❌ 未填地址（局域网内可留空）';});
+    };
+    document.getElementById('amuSave').onclick=function(){
+      var v=read();
+      S.base=v.base; S.key=v.key; S.on=false; S.ts=0;
+      try{localStorage.setItem(CFG,JSON.stringify({base:v.base,key:v.key}));}catch(e){}
+      if(S.timer){clearInterval(S.timer);S.timer=null;}
+      p.remove(); toast('正在连接…'); connect(false);
+    };
+  }
+  window.__amuOpen=openPanel;
+
+  function mount(){
+    if(document.getElementById('amuSyncBtn'))return;
+    var b=document.createElement('button');
+    b.id='amuSyncBtn';
+    b.textContent='☁️';
+    b.style.cssText='position:fixed;right:14px;bottom:14px;z-index:99998;width:46px;height:46px;border-radius:50%;border:none;background:#94a3b8;color:#fff;font-size:20px;line-height:1;cursor:pointer;box-shadow:0 6px 18px rgba(15,40,60,.28)';
+    b.onclick=openPanel;
+    document.body.appendChild(b);
+    badge('busy');
+    connect(true);
+    setInterval(function(){ if(!S.on) connect(true); },20000);
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);
+  else mount();
+})();
+
 </script>
 </body>
 </html>
